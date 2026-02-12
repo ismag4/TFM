@@ -192,35 +192,46 @@ def espectro_tensorial(phi,f,M,Mpl):
     
     return 8* (H/(2*np.pi))**2/Mpl**2
 
-def background(f, M, Cg, Mpl=1, g=100, c=3, m=-2, N=60):
-    phi_val = np.linspace(0, np.pi*f,50000)
+def background_full(f, M, Cg, Mpl=1, g=100, c=3, m=0, N=60):
+    # 1. Barrido en phi para encontrar phi_end
+    phi_val = np.linspace(0, np.pi*f, 300000)
 
-    Q = []
-
+    Q_list = []
     for phi in phi_val:
-            try:
-                if epsilon_v(phi,f,M,Mpl)/(1+Qphi(phi,f,M,Mpl,g, Cg, c,m)[0]) <= 1.0:
-                    Q.append(Qphi(phi,f,M,Mpl,g, Cg, c,m)[0])
-                else:
-                    Q.append(np.nan)
-            except RuntimeError:
-                Q.append(np.nan)
+        try:
+            Qphi_val = Qphi(phi, f, M, Mpl, g, Cg, c, m)[0]
+            if epsilon_v(phi,f,M,Mpl)/(1 + Qphi_val) <= 1:
+                Q_list.append(Qphi_val)
+            else:
+                Q_list.append(np.nan)
+        except RuntimeError:
+            Q_list.append(np.nan)
+    Q_list = np.array(Q_list)
 
-    phi_end = fin_inflacion(phi_val, Q, f, M,Mpl,g,Cg,c,m)[0]
+    # 2. Encontrar phi_end
+    phi_end, _ = fin_inflacion(phi_val, Q_list, f, M, Mpl, g, Cg, c, m)
 
+    # 3. Integrar hacia atrás para N e-folds
     sol = solve_ivp(
-    fun=dphi_dN,
-    t_span=(0, -N),    # integración hacia atrás
-    y0=[phi_end],            # valor inicial de phi
-    args=(f, M, Mpl, g, Cg, c, m),
-    method='RK45',           # Runge-Kutta 4(5)
-    rtol=1e-8, atol=1e-10)
+        fun=dphi_dN,
+        t_span=(0, -N),
+        y0=[phi_end],
+        args=(f, M, Mpl, g, Cg, c, m),
+        method='RK45', #RK89 #pd89
+        rtol=1e-8, atol=1e-10
+    )
 
-    phi_star = sol.y[0, -1]  # valor de phi al inicio de inflación  
+    phi_N = sol.y[0]
+    N_vals = sol.t  # t es negativo: 0 -> -N
+    N_vals = -N_vals  # invertimos para que N crezca hacia adelante
 
-    Q_star = Qphi(phi_star,f,M,Mpl,g,Cg,c,m)[0]
-    
-    return phi_star, Q_star
+    # 4. Calcular Q(N) y T/H(N)
+    Q_N = np.array([Qphi(phi, f, M, Mpl, g, Cg, c, m)[0] for phi in phi_N])
+    H_N = np.array([Hubble(phi, f, M, Mpl) for phi in phi_N])
+    T_N = np.array([temperatura(phi, Q, f, M, Mpl, g) for phi, Q in zip(phi_N, Q_N)])
+    TH_N = T_N / H_N
+
+    return N_vals, phi_N, Q_N, TH_N
 
 def find_M(f, Cg):
     def objetivo(M):
@@ -235,17 +246,20 @@ def find_M(f, Cg):
     sol = root_scalar(objetivo, bracket=[1e-10,0.1])
     return sol.root
 
-F = np.array([2,3,4,5,10])
-Cgamma = np.array([1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e12])
+F = np.array([5])
+#Cgamma = np.linspace(10, 1e7, 150)
+Cgamma = np.array([1e4])
 
 Mpl = 1
 g = 100
 c = 3
 m = 0
 
-NS = np.full((len(F), len(Cgamma)), np.nan)
-Q_star_arr = np.full((len(F), len(Cgamma)), np.nan)
-M_arr = np.full((len(F), len(Cgamma)), np.nan)
+NS_10 = np.full((len(F), len(Cgamma)), np.nan)
+Q_star_arr_10 = np.full((len(F), len(Cgamma)), np.nan)
+M_arr_10 = np.full((len(F), len(Cgamma)), np.nan)
+Pt_arr = np.full((len(F), len(Cgamma)), np.nan)
+r_arr = np.full((len(F), len(Cgamma)), np.nan)
 
 for i, f in enumerate(F):
     
@@ -259,42 +273,63 @@ for i, f in enumerate(F):
         
             M = find_M(f,Cg)
             
-            M_arr[i,j] = M
+            M_arr_10[i,j] = M
             
-            phi_star, Q_star = background(f,M,Cg)
+            N_vals, phi_N, Q_N, TH_N = background_full(f,M,Cg)
             
-            Q_star_arr[i,j] = Q_star
+            phi_star = phi_N[-1]
+            Q_star   = Q_N[-1]
+            
+            Q_star_arr_10[i,j] = Q_star
             
             G3 = 1+4.981*Q_star**1.946+0.127*Q_star**4.33
             dlnG3 = ((4.981*1.946)*Q_star**0.946 + (0.127*4.33)*Q_star**3.33)/G3
+            
+            pt = espectro_tensorial(phi_star,f,M,Mpl)
+            r = pt/espectro_potencias(phi_star,Q_star,f,M,Mpl,g, G3)
+            Pt_arr[i,j] = pt
+            r_arr[i,j] = r
+            
 
             ns = indice_espectral(phi_star, Q_star,f,M,Mpl,g, c, m,dlnG3)
             
-            NS[i,j] = ns
+            NS_10[i,j] = ns
             
         except (UnboundLocalError, RuntimeError):
 
-            M_arr[i,j] = np.nan
-            Q_star_arr[i,j] = np.nan
-            NS[i,j] = np.nan
+            M_arr_10[i,j] = np.nan
+            Q_star_arr_10[i,j] = np.nan
+            NS_10[i,j] = np.nan
+            Pt_arr[i,j] = np.nan
+            r_arr[i,j] = np.nan
+            
+            
 
-ns_obs = 0.9678
-ns_obs_err = 0.0072
+fig, axs = plt.subplots(3,1, figsize=(8,12), sharex=True)
 
-#for j, Cg in enumerate(Cgamma):
-        #plt.plot(F, NS[:, j], label=f"Cγ = {Cg:.0e}")
+# phi(N)
+axs[0].plot(N_vals, phi_N)
+axs[0].set_ylabel(r'$\phi(N)$')
+axs[0].grid(True)
 
-for i, f in enumerate(F):
-        plt.semilogx(Q_star_arr[i,:], NS[i,:], label=f"f = {f}")
+# Q(N)
+axs[1].semilogy(N_vals, Q_N)
+axs[1].set_ylabel(r'$Q(N)$')
+axs[1].grid(True)
 
-plt.axhline(ns_obs, linestyle='-' ,color='r', label=r"$n_s^{\rm obs}$")
-plt.axhline(ns_obs+ns_obs_err, linestyle='--' ,color='r')
-plt.axhline(ns_obs-ns_obs_err, linestyle='--' ,color='r')
-plt.xlabel(r"$Q_*$")
-plt.ylabel(r"$n_s$")
-plt.legend()
+# T/H(N)
+axs[2].semilogy(N_vals, TH_N)
+axs[2].set_ylabel(r'$T/H(N)$')
+axs[2].set_xlabel("Número de e-folds $N$")
+axs[2].grid(True)
+
+plt.tight_layout()
 plt.show()
 
-print(M_arr[:,0])
-print(NS[:,0])
-print(Q_star_arr[:,0])
+plt.semilogx(Q_star_arr_10, Pt_arr)
+plt.show()
+
+plt.semilogx(Q_star_arr_10, r_arr)
+plt.show()
+
+print("r : ", r_arr)
