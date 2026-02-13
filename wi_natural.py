@@ -77,22 +77,12 @@ def newton(f, df, x0,c, tol, iter):
         if abs(xn - x) < tol:
             return xn
         x = xn
-    #x = x0
-    
-    #for i in range(iter):
-    #    xn = x - f/df
-    #    
-    #    if abs(xn - x) < tol:
-    #        return xn
-        
-    #    x = xn
         
     raise RuntimeError("No se alcanzó convergencia")
 
 ####    CALCULO DE Q(PHI)    ####
 
 def Qphi(phi,f,M,Mpl,g, Cg, c,m):
-    
     
     A = Aphi(phi,f,M,Mpl,g, Cg, c,m)
         
@@ -103,20 +93,12 @@ def Qphi(phi,f,M,Mpl,g, Cg, c,m):
         
     fw = weak_fq(Q,c)
     dfw = weak_dfq(Q,c)
-        
-    fs = strong_fq(Q,c)
-    dfs = 1
-        
-    #Fq = fq-A
-    #Fw = fw - A
-    #Fs = fs - A
     
     Fq = lambda Q: f_q(Q,c)-A
     df = lambda Q: dfq(Q,c)
         
     Q = newton(Fq,df,Q, c,tol=1e-3,iter=1000)
     Qw = 0 #newton(Fq,dfq,Q, c,tol=1e-5,iter=1000)
-    #Qs = newton(Fs,dfs,Qs0, tol=1e-5,iter=1000000)
     
     return Q, Qw 
 
@@ -179,13 +161,25 @@ def indice_espectral(phi, Q,f,M,Mpl,g, c, m, dlnGi):
     n = dist_BE(phi, Q,f,M,Mpl,g)
     T = temperatura(phi,Q,f,M,Mpl,g)
     H = Hubble(phi,f,M,Mpl)
-    #G3 = float(1+4.981*Q**1.946+0.127*Q**4.33)
-    #dlnG3 = float(((4.981*1.946)*Q**0.946 + (0.127*4.33)*Q**3.33)/G3)
-    B = 1+2*n + (2*Q*T*np.pi*np.sqrt(3))/(H*np.sqrt(3+4*np.pi*Q))
-    
-    corch = 2*Q*T*np.sqrt(3)*(dlnQ+dlnTH-4*np.pi*Q*dlnQ/(4+4*np.pi*Q))/(H*np.sqrt(3+4*np.pi*Q))-(2*n*dlnTH*(T/H)/(1-np.exp(-H/T)))
 
-    return 1-6*ev+2*etv+Q*dlnQ/(1+Q)+Q*dlnQ*dlnGi+corch/B
+    B = 1+2*n + (2*Q*T*np.pi*np.sqrt(3))/(H*np.sqrt(3+4*np.pi*Q))
+    A = 2*np.pi*np.sqrt(3)*Q/(np.sqrt(3+4*np.pi*Q))
+    #dlnA = 1/Q - 2*np.pi/(3+4*np.pi*Q)
+    dA = A*(1-2*Q*np.pi/(3+4*np.pi*Q))*dlnQ 
+    #dn = n*dlnTH*(H/T)/(1-np.exp(-H/T))
+    dn = n*(n+1)*dlnTH*(H/T)
+    #corch = 2*dn + (T/H)*A*Q*dlnQ*dlnA+A*(T/H)*dlnTH
+    corch = 2*dn + dA*T/H + A*T/H*dlnTH
+    
+    print("Cold: ", 1-6*ev+2*etv)
+    print("sum 1: ", Q*dlnQ/(1+Q))
+    print("sum 2: ", Q*dlnQ*dlnGi)
+    print("sum 3: ", corch/B)
+    print("T/H: ", T/H)
+    print("Warm: ", 1-6*ev+2*etv + Q*dlnQ/(1+Q) + Q*dlnQ*dlnGi + corch/B)
+    
+    return 1-6*ev+2*etv + Q*dlnQ/(1+Q) + Q*dlnQ*dlnGi + corch/B
+    
 
 def espectro_tensorial(phi,f,M,Mpl):
     H = Hubble(phi,f,M,Mpl)
@@ -236,7 +230,9 @@ def background_full(f, M, Cg, Mpl=1, g=100, c=3, m=0, N=60):
 def find_M(f, Cg):
     def objetivo(M):
         #M = np.exp(logM)
-        phi_star, Q_star = background(f,M,Cg)
+        N_vals, phi_N, Q_N, TH_N = background_full(f,M,Cg)
+        phi_star = phi_N[-1]
+        Q_star   = Q_N[-1]
         G3 = 1+4.981*Q_star**1.946+0.127*Q_star**4.33
         As = espectro_potencias(phi_star, Q_star, f, M, Mpl, g, G3)
         As_obs = 2.10*10**-9
@@ -255,9 +251,9 @@ g = 100
 c = 3
 m = 0
 
-NS_10 = np.full((len(F), len(Cgamma)), np.nan)
-Q_star_arr_10 = np.full((len(F), len(Cgamma)), np.nan)
-M_arr_10 = np.full((len(F), len(Cgamma)), np.nan)
+NS_ = np.full((len(F), len(Cgamma)), np.nan)
+Q_star_arr = np.full((len(F), len(Cgamma)), np.nan)
+M_arr = np.full((len(F), len(Cgamma)), np.nan)
 Pt_arr = np.full((len(F), len(Cgamma)), np.nan)
 r_arr = np.full((len(F), len(Cgamma)), np.nan)
 
@@ -273,14 +269,14 @@ for i, f in enumerate(F):
         
             M = find_M(f,Cg)
             
-            M_arr_10[i,j] = M
+            M_arr[i,j] = M
             
             N_vals, phi_N, Q_N, TH_N = background_full(f,M,Cg)
             
             phi_star = phi_N[-1]
             Q_star   = Q_N[-1]
             
-            Q_star_arr_10[i,j] = Q_star
+            Q_star_arr[i,j] = Q_star
             
             G3 = 1+4.981*Q_star**1.946+0.127*Q_star**4.33
             dlnG3 = ((4.981*1.946)*Q_star**0.946 + (0.127*4.33)*Q_star**3.33)/G3
@@ -293,13 +289,13 @@ for i, f in enumerate(F):
 
             ns = indice_espectral(phi_star, Q_star,f,M,Mpl,g, c, m,dlnG3)
             
-            NS_10[i,j] = ns
+            NS[i,j] = ns
             
         except (UnboundLocalError, RuntimeError):
 
-            M_arr_10[i,j] = np.nan
-            Q_star_arr_10[i,j] = np.nan
-            NS_10[i,j] = np.nan
+            M_arr[i,j] = np.nan
+            Q_star_arr[i,j] = np.nan
+            NS[i,j] = np.nan
             Pt_arr[i,j] = np.nan
             r_arr[i,j] = np.nan
             
