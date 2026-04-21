@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.optimize import root_scalar
+from tqdm import tqdm
 
 def pot(phi, f, M):
     return M**4*(1+np.cos(phi/f))
@@ -118,13 +119,12 @@ def fin_inflacion(phi_val , Q ,f,M,Mpl,g, Cg, c,m):
 
 ####    INICIO DE INFLACIÓN ####
 
-def dphi_dN(N, y, f, M, Mpl, g, Cg, c, m):
-    phi = y[0]   # valor escalar de phi en este paso
-    Q, Qw = Qphi(phi, f, M, Mpl, g, Cg, c, m)  # calcular Q
-    V_phi = dpot(phi, f, M)
+def dYdN(N, Y, f, M, Mpl, g, Cg, c, m):
+    phi, Q = Y
     H = Hubble(phi, f, M, Mpl)
-    
-    return [- V_phi / (3 * H**2 * (1 + Q))]####    INICIO DE INFLACIÓN ####
+    dphi = -dpot(phi,f,M) / (3*H**2 * (1 + Q))
+    dlnQ = dlnQdN(phi, Q, f, M, Mpl, c, m)
+    return [dphi, Q*dlnQ]
 
 ####    ECUACIONES DINÁMICAS    #####
 
@@ -149,10 +149,8 @@ def espectro_potencias(phi, Q,f,M,Mpl,g, Gi):
     dphi = phi_dot(phi, Q, f, M, Mpl)
     T = temperatura(phi, Q,f,M,Mpl,g)
     n = dist_BE(phi, Q,f,M,Mpl,g)
-    #G3 = 1+4.981*Q**1.946+0.127*Q**4.33
-
+    
     return (H/dphi)**2*(H/(2*np.pi))**2*(1+2*n+(2*np.pi*Q*np.sqrt(3)*T)/(H*np.sqrt(3+4*np.pi*Q)))*Gi
-
 def indice_espectral(phi, Q,f,M,Mpl,g, c, m, dlnGi):
     ev = epsilon_v(phi,f,M,Mpl)
     etv = eta_v(phi,f,M,Mpl)
@@ -161,24 +159,17 @@ def indice_espectral(phi, Q,f,M,Mpl,g, c, m, dlnGi):
     n = dist_BE(phi, Q,f,M,Mpl,g)
     T = temperatura(phi,Q,f,M,Mpl,g)
     H = Hubble(phi,f,M,Mpl)
-
-    B = 1+2*n + (2*Q*T*np.pi*np.sqrt(3))/(H*np.sqrt(3+4*np.pi*Q))
+    
+    B = 1+2*n + (T/H)*(2*Q*np.pi*np.sqrt(3))/(np.sqrt(3+4*np.pi*Q))
+       
     A = 2*np.pi*np.sqrt(3)*Q/(np.sqrt(3+4*np.pi*Q))
-    #dlnA = 1/Q - 2*np.pi/(3+4*np.pi*Q)
-    dA = A*(1-2*Q*np.pi/(3+4*np.pi*Q))*dlnQ 
-    #dn = n*dlnTH*(H/T)/(1-np.exp(-H/T))
-    dn = n*(n+1)*dlnTH*(H/T)
-    #corch = 2*dn + (T/H)*A*Q*dlnQ*dlnA+A*(T/H)*dlnTH
-    corch = 2*dn + dA*T/H + A*T/H*dlnTH
+    dA = A*(dlnQ - Q*dlnQ *2*np.pi/(3+4*np.pi*Q))
     
-    print("Cold: ", 1-6*ev+2*etv)
-    print("sum 1: ", Q*dlnQ/(1+Q))
-    print("sum 2: ", Q*dlnQ*dlnGi)
-    print("sum 3: ", corch/B)
-    print("T/H: ", T/H)
-    print("Warm: ", 1-6*ev+2*etv + Q*dlnQ/(1+Q) + Q*dlnQ*dlnGi + corch/B)
+    dn = np.exp(H/T)*n**2*(H/T)*dlnTH
     
-    return 1-6*ev+2*etv + Q*dlnQ/(1+Q) + Q*dlnQ*dlnGi + corch/B
+    dlnB = (2*dn + (T/H)*(dA + A*dlnTH))/B
+    
+    return 1 - 6*ev/(1+Q) + 2*etv/(1+Q) + 2*Q*dlnQ/(1+Q) + dlnB + dlnQ*Q*dlnGi
     
 
 def espectro_tensorial(phi,f,M,Mpl):
@@ -186,14 +177,14 @@ def espectro_tensorial(phi,f,M,Mpl):
     
     return 8* (H/(2*np.pi))**2/Mpl**2
 
-def background_full(f, M, Cg, Mpl=1, g=100, c=3, m=0, N=60):
+def background_full(f, M, Cg, Mpl=1, g=106.75, c=3, m=0, N=60):
     # 1. Barrido en phi para encontrar phi_end
-    phi_val = np.linspace(0, np.pi*f, 300000)
+    phi_val = np.linspace(0.01, np.pi*f, 100000)
 
     Q_list = []
     for phi in phi_val:
         try:
-            Qphi_val = Qphi(phi, f, M, Mpl, g, Cg, c, m)[0]
+            Qphi_val = Qphi(phi,f,M,Mpl, g, Cg, c,m)[0]
             if epsilon_v(phi,f,M,Mpl)/(1 + Qphi_val) <= 1:
                 Q_list.append(Qphi_val)
             else:
@@ -203,129 +194,201 @@ def background_full(f, M, Cg, Mpl=1, g=100, c=3, m=0, N=60):
     Q_list = np.array(Q_list)
 
     # 2. Encontrar phi_end
-    phi_end, _ = fin_inflacion(phi_val, Q_list, f, M, Mpl, g, Cg, c, m)
-
+    phi_end, Q_end = fin_inflacion(phi_val, Q_list, f, M, Mpl, g, Cg, c, m)
+    
+    
+    
     # 3. Integrar hacia atrás para N e-folds
+    
     sol = solve_ivp(
-        fun=dphi_dN,
+        fun=dYdN,
         t_span=(0, -N),
-        y0=[phi_end],
+        y0=[phi_end, Q_end],
         args=(f, M, Mpl, g, Cg, c, m),
-        method='RK45', #RK89 #pd89
+        method='RK45',
         rtol=1e-8, atol=1e-10
     )
 
-    phi_N = sol.y[0]
+    """phi_N = sol.y[0]
     N_vals = sol.t  # t es negativo: 0 -> -N
-    N_vals = -N_vals  # invertimos para que N crezca hacia adelante
+    #asi N[0] = 0 fin y N[-1] = -60 inicio
+    #lo invertimos para tener el inicio en el primer elemento
+    N_vals = N_vals[::-1]"""
+    phi_N = sol.y[0][::-1]   # invertir si quieres que N crezca
+    Q_N   = sol.y[1][::-1]
+    N_vals = sol.t[::-1] 
 
     # 4. Calcular Q(N) y T/H(N)
-    Q_N = np.array([Qphi(phi, f, M, Mpl, g, Cg, c, m)[0] for phi in phi_N])
+    #Q_N = np.array([Qphi(phi, f, M, Mpl, g, Cg, c, m)[0] for phi in phi_N])
     H_N = np.array([Hubble(phi, f, M, Mpl) for phi in phi_N])
     T_N = np.array([temperatura(phi, Q, f, M, Mpl, g) for phi, Q in zip(phi_N, Q_N)])
     TH_N = T_N / H_N
+    
+   #como hemos invertido N_vals hay que invertir todos los arrays 
+    
+    """Q_N = Q_N[::-1]
+    TH_N = TH_N[::-1]
+    phi_N = phi_N[::-1]"""
 
-    return N_vals, phi_N, Q_N, TH_N
+    return N_vals, phi_N, Q_N, TH_N, T_N, H_N
 
 def find_M(f, Cg):
     def objetivo(M):
         #M = np.exp(logM)
-        N_vals, phi_N, Q_N, TH_N = background_full(f,M,Cg)
-        phi_star = phi_N[-1]
-        Q_star   = Q_N[-1]
+        N_vals, phi_N, Q_N, TH_N, T_N, H_N = background_full(f,M,Cg)
+        #phi_star = phi_N[-1]
+        #Q_star   = Q_N[-1]
+        phi_star = phi_N[0]
+        Q_star   = Q_N[0]
         G3 = 1+4.981*Q_star**1.946+0.127*Q_star**4.33
         As = espectro_potencias(phi_star, Q_star, f, M, Mpl, g, G3)
         As_obs = 2.10*10**-9
-        return As-As_obs
+        As_obs_err = 0.03*10**-9
+        return As/As_obs - 1
         #return np.log(As) - np.log(As_obs)
     
-    sol = root_scalar(objetivo, bracket=[1e-10,0.1])
-    return sol.root
+    sol = root_scalar(objetivo, bracket=[1e-15,1], method='brentq')
 
-F = np.array([5])
-#Cgamma = np.linspace(10, 1e7, 150)
-Cgamma = np.array([1e4])
+
+    N_vals, phi_N, Q_N, TH_N, T_N, H_N = background_full(f,sol.root,Cg)
+    return sol.root,N_vals, phi_N, Q_N, TH_N, T_N, H_N
+
+# cada 'f' le corresponde un'Cgamma' 
+parametros = {
+    #1: np.logspace(3, 10, 200),
+    1.5: np.logspace(3, 10, 200),
+    #1.75: np.logspace(3, 10, 200),
+    #2: np.logspace(3, 10, 200),
+    #2.5: np.logspace(3, 10, 30), 
+    #3: np.logspace(3, 10, 30),
+    4: np.logspace(3, 10,10)
+}
 
 Mpl = 1
-g = 100
+g = 106.75
 c = 3
 m = 0
+kpivot = 0.05 # Mpc^-1
 
-NS_ = np.full((len(F), len(Cgamma)), np.nan)
-Q_star_arr = np.full((len(F), len(Cgamma)), np.nan)
-M_arr = np.full((len(F), len(Cgamma)), np.nan)
-Pt_arr = np.full((len(F), len(Cgamma)), np.nan)
-r_arr = np.full((len(F), len(Cgamma)), np.nan)
+# Estructuras para almacenar los resultados
+evolucion_k = {}
+resultados_escalares = {f: {'Cg': [], 'ns': [], 'As': [], 'r': [], 'Pt': [], 'Q_star': []} for f in parametros.keys()}
 
-for i, f in enumerate(F):
-    
-    print("iter f: ", i)
-    
-    for j, Cg in enumerate(Cgamma):
+# Calculamos el total de iteraciones para la barra de progreso
+total_iter = sum(len(parametros[f]) for f in parametros)
+
+# =============================================================================
+# 3. BUCLE PRINCIPAL DE CÁLCULO
+# =============================================================================
+with tqdm(total=total_iter) as pbar:
+    for f in parametros:
+        for Cg in parametros[f]:
+            try:
+                # --- Background ---
+                
+                M,N_vals, phi_N, Q_N, TH_N, T_N, H_N = find_M(f, Cg)
+                
+                phi_star = phi_N[0]
+                Q_star   = Q_N[0]
+                
+                # --- Observables en la escala pivote ---
+                G3 = 1 + 4.981*Q_star**1.946 + 0.127*Q_star**4.33
+                dlnG3 = ((4.981*1.946)*Q_star**0.946 + (0.127*4.33)*Q_star**3.33)/G3
+                
+                pt = espectro_tensorial(phi_star, f, M, Mpl)
+                ps = espectro_potencias(phi_star, Q_star, f, M, Mpl, g, G3)
+                r = pt/ps
+                ns = indice_espectral(phi_star, Q_star, f, M, Mpl, g, c, m, dlnG3)
+                
+                # Guardamos los valores escalares
+                resultados_escalares[f]['Cg'].append(Cg)
+                resultados_escalares[f]['Q_star'].append(Q_star)
+                resultados_escalares[f]['ns'].append(ns)
+                resultados_escalares[f]['As'].append(ps)
+                resultados_escalares[f]['Pt'].append(pt)
+                resultados_escalares[f]['r'].append(r)
+                
+                # --- Evolución dependiente de N ---
+                HN = np.array([Hubble(phi, f, M, Mpl) for phi in phi_N])
+                
+                k_ar = np.array([kpivot * np.exp(N+60) * (H/HN[0]) for N, H in zip(N_vals, HN)])
+                
+                As_array = []
+                ns_array = []
+                ev_ar = []
+                eta_ar = [] 
+
+                for phi, Q in zip(phi_N, Q_N):
+                    G3_q = 1 + 4.981*Q**1.946 + 0.127*Q**4.33
+                    dlnG3_q = ((4.981*1.946)*Q**0.946 + (0.127*4.33)*Q**3.33)/G3_q
+                    
+                    As_array.append(espectro_potencias(phi, Q, f, M, Mpl, g, G3_q))
+                    ns_array.append(indice_espectral(phi, Q, f, M, Mpl, g, c, m, dlnG3_q))
+                    ev_ar.append(epsilon_v(phi, f, M, Mpl))
+                    eta_ar.append(abs(eta_v(phi, f, M, Mpl)))
+                    
+                As_array = np.array(As_array)
+                ns_array = np.array(ns_array)
+                
+                Pr_ar = As_array * (k_ar/kpivot)**(ns_array - 1)
+                
+                evolucion_k[(f, Cg)] = {
+                    'N_vals': N_vals, 'phi_N': phi_N, 'Q_N': Q_N, 'TH_N': TH_N,
+                    'k_ar': k_ar, 'As': As_array, 'ns': ns_array, 'Pr': Pr_ar, 
+                    'ev': ev_ar, 'eta': eta_ar, 'Q_star': Q_star, 'ns_pivot': ns
+                }
+                
+            except (UnboundLocalError, RuntimeError):
+                pass
+            
+            pbar.update(1)
+            
+            
+
+# --- Gráfica del valor escalar ns vs Cgamma para cada f ---
+plt.figure(figsize=(8, 5))
+for f, data in resultados_escalares.items():
+    if len(data['Q_star']) > 0:
+        # Emparejamos Q_star y ns, y los ordenamos de menor a mayor Q_star
+        Q_sorted, ns_sorted = zip(*sorted(zip(data['Q_star'], data['ns'])))
         
-        print("iter Cg: ", j)
-        
-        try:
-        
-            M = find_M(f,Cg)
-            
-            M_arr[i,j] = M
-            
-            N_vals, phi_N, Q_N, TH_N = background_full(f,M,Cg)
-            
-            phi_star = phi_N[-1]
-            Q_star   = Q_N[-1]
-            
-            Q_star_arr[i,j] = Q_star
-            
-            G3 = 1+4.981*Q_star**1.946+0.127*Q_star**4.33
-            dlnG3 = ((4.981*1.946)*Q_star**0.946 + (0.127*4.33)*Q_star**3.33)/G3
-            
-            pt = espectro_tensorial(phi_star,f,M,Mpl)
-            r = pt/espectro_potencias(phi_star,Q_star,f,M,Mpl,g, G3)
-            Pt_arr[i,j] = pt
-            r_arr[i,j] = r
-            
+        # Representamos Q_star en el eje X (escala logarítmica) y ns en el Y
+        plt.semilogx(Q_sorted, ns_sorted, marker='o', linestyle='-', label=rf'$f = {f}$')
 
-            ns = indice_espectral(phi_star, Q_star,f,M,Mpl,g, c, m,dlnG3)
-            
-            NS[i,j] = ns
-            
-        except (UnboundLocalError, RuntimeError):
+ns_ACT = 0.964
+sigma_ACT = 0.02 #2sigmas
 
-            M_arr[i,j] = np.nan
-            Q_star_arr[i,j] = np.nan
-            NS[i,j] = np.nan
-            Pt_arr[i,j] = np.nan
-            r_arr[i,j] = np.nan
-            
-            
+plt.axhline(ns_ACT, color='black', linestyle=':', alpha=0.7, label='ACT')
 
-fig, axs = plt.subplots(3,1, figsize=(8,12), sharex=True)
+# Margen superior e inferior a 1 sigma (discontinuas)
+plt.axhline(ns_ACT + sigma_ACT, color='gray', linestyle='--', alpha=0.8, label=r'Límites $2\sigma$')
+plt.axhline(ns_ACT - sigma_ACT, color='gray', linestyle='--', alpha=0.8)
+plt.xlabel(r"$Q_*$")
+plt.ylabel(r"$n_s$ (escala pivote)")
+plt.title(r"Índice espectral $n_s$ en función del parámetro de disipación $Q_*$")
+plt.legend()
+#plt.grid(True)
+plt.show()
 
-# phi(N)
-axs[0].plot(N_vals, phi_N)
-axs[0].set_ylabel(r'$\phi(N)$')
-axs[0].grid(True)
-
-# Q(N)
-axs[1].semilogy(N_vals, Q_N)
-axs[1].set_ylabel(r'$Q(N)$')
-axs[1].grid(True)
-
-# T/H(N)
-axs[2].semilogy(N_vals, TH_N)
-axs[2].set_ylabel(r'$T/H(N)$')
-axs[2].set_xlabel("Número de e-folds $N$")
-axs[2].grid(True)
-
+# --- Evolución de Pr con k ---
+plt.figure(figsize=(8, 5))
+pares_graficados = 0
+for (f, Cg), data in evolucion_k.items():
+    ns_val = data['ns_pivot']
+    if ns_ACT - sigma_ACT <= ns_val <= ns_ACT + sigma_ACT:
+        Q_s = data['Q_star']
+        plt.loglog(data['k_ar'], data['As'], label=rf'$f={f}, Q_*={Q_s:.1e}$')
+        pares_graficados += 1
+if pares_graficados == 0:
+    plt.text(0.5, 0.5, r'Ningún par $(f, Q_*)$ es compatible' + '\n' + r'con $n_s$ a $2\sigma$', 
+             horizontalalignment='center', verticalalignment='center', 
+             transform=plt.gca().transAxes, fontsize=12)
+else:
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.ylim(1e-14, 1)
+plt.xlabel("$k$")
+plt.ylabel(r"$P_R$")
+#plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+#plt.grid(True)
 plt.tight_layout()
 plt.show()
-
-plt.semilogx(Q_star_arr_10, Pt_arr)
-plt.show()
-
-plt.semilogx(Q_star_arr_10, r_arr)
-plt.show()
-
-print("r : ", r_arr)
