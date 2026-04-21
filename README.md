@@ -1,2 +1,2 @@
 # TFM
-Warm inflation
+Warm natural inflation
