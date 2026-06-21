@@ -1,0 +1,88 @@
+params:
+  f:
+    prior:
+      min: 0.01
+      max: 15.0
+    ref: 2.0
+    proposal: 0.05
+    latex: f
+  M:
+    prior:
+      min: 1e-9
+      max: 1e-1
+    ref: 3.16e-5
+    proposal: 1e-6
+    latex: M
+  logCg:
+    prior:
+      min: 1.0
+      max: 20.0
+    ref: 7.5
+    proposal: 0.1
+    latex: \log_{10}(C_\gamma)
+  logk:
+    prior:
+      min: -14.0
+      max: 4.0
+    ref: -6.5
+    proposal: 0.2
+    latex: \log_{10}(T_0)
+
+likelihood:
+  inflacion_templada:
+    external: "import_module('wi_cobaya_m2').loglike"
+    requires: []
+
+sampler:
+  mcmc:
+    burn_in: 500
+    learn_proposal: True
+    learn_proposal_Rminus1_max: 3.0
+    oversample_power: 0.5
+    proposal_scale: 0.2
+
+output: chains_m2/mcmc_warm_inflation
+params:
+  f:
+    prior:
+      min: 0.01
+      max: 25.0
+    ref: 5.0
+    proposal: 0.05
+    latex: f
+  M:
+    prior:
+      min: 1e-7
+      max: 1e-1
+    ref: 0.004641588833612777
+    proposal: 1e-4
+    latex: M
+  logCg:
+    prior:
+      min: 1.0
+      max: 30.0
+    ref: 7.0
+    proposal: 0.1
+    latex: \log_{10}(C_\gamma)
+  logk:
+    prior:
+      min: -20.0
+      max: 4.0
+    ref: -6.11111111
+    proposal: 0.2
+    latex: \log_{10}(T_0)
+
+likelihood:
+  inflacion_templada:
+    external: "import_module('wi_cobaya').loglike"
+    requires: []
+
+sampler:
+  mcmc:
+    burn_in: 500
+    learn_proposal: True
+    learn_proposal_Rminus1_max: 3.0
+    oversample_power: 0.5
+    proposal_scale: 0.2
+
+output: chains_m0/mcmc_warm_inflation
