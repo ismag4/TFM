@@ -1,0 +1,39 @@
+params:
+  f:
+    prior:
+      min: 0.01
+      max: 25.0
+    ref: 5.0
+    proposal: 0.05
+    latex: f
+  M:
+    prior:
+      min: 1e-7
+      max: 1e-1
+    ref: 0.004641588833612777
+    proposal: 1e-3
+    latex: M
+  logCg:
+    prior:
+      min: 1.0
+      max: 30.0
+    ref: 4.5555
+    proposal: 0.1
+    latex: \log_{10}(C_\gamma)
+
+likelihood:
+  inflacion_templada:
+    external: "import_module('wi_cobaya').loglike"
+    requires: []
+
+sampler:
+  mcmc:
+    burn_in: 500
+    max_tries: 100000
+    learn_proposal: True
+    learn_proposal_Rminus1_max: 3.0
+    Rminus1_stop: 0.05
+    oversample_power: 0.5
+    proposal_scale: 0.2
+
+output: chains_m0/mcmc_warm_inflation
