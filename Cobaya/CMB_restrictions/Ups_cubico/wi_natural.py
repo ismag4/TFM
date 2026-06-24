@@ -254,9 +254,9 @@ def loglike(f, logCg, M):
         if r < 0:
             return -np.inf
         elif r > 0.014:
-            chi2_r = (r-0.014/0.011)**2
+            chi2_r = ((r-0.014)/0.011)**2
         else:
-            chi2_r = (r-0.014/0.010)**2
+            chi2_r = ((r-0.014)/0.010)**2
 
         chi2 = chi2_ns + chi2_As + chi2_r
 
