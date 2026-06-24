@@ -251,12 +251,12 @@ def loglike(f, logCg, M):
         chi2_ns = ((ns-0.9626)/0.0057)**2
         chi2_As = ((np.log(1e10*As) - 3.044)/0.014)**2
 
-        if r > 0.036:
-            chi2_r = ((r-0.036)/0.022)**2
-        elif r < 0:
+        if r < 0:
             return -np.inf
+        elif r > 0.014:
+            chi2_r = (r-0.014/0.011)**2
         else:
-            chi2_r = (r/0.022)**2
+            chi2_r = (r-0.014/0.010)**2
 
         chi2 = chi2_ns + chi2_As + chi2_r
 
